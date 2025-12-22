@@ -4,23 +4,41 @@ import androidx.annotation.NonNull
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
-import io.flutter.plugin.common.EventChannel // <--- Nuevo
+import io.flutter.plugin.common.EventChannel
+
+// Imports Biometría
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
-import android.hardware.Sensor // <--- Nuevo
-import android.hardware.SensorEvent // <--- Nuevo
-import android.hardware.SensorEventListener // <--- Nuevo
-import android.hardware.SensorManager // <--- Nuevo
-import kotlin.math.sqrt // <--- Nuevo
 import java.util.concurrent.Executor
 
-class MainActivity: FlutterFragmentActivity() {
-    // CANALES
-    private val BIOMETRIC_CHANNEL = "com.tuinstituto.fitness/biometric"
-    private val ACCELEROMETER_CHANNEL = "com.tuinstituto.fitness/accelerometer" // <--- Nuevo
+// Imports Acelerómetro
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
+import kotlin.math.sqrt
 
-    // Variables Biometría
+// Imports GPS (NUEVO)
+import android.Manifest
+import android.content.pm.PackageManager
+import android.location.Location
+import android.location.LocationListener
+import android.location.LocationManager
+import android.os.Bundle
+import androidx.core.app.ActivityCompat
+
+class MainActivity: FlutterFragmentActivity() {
+    // ═══════════════════════════════════════════════════════════
+    // CONSTANTES DE CANALES
+    // ═══════════════════════════════════════════════════════════
+    private val BIOMETRIC_CHANNEL = "com.tuinstituto.fitness/biometric"
+    private val ACCELEROMETER_CHANNEL = "com.tuinstituto.fitness/accelerometer"
+    private val GPS_CHANNEL = "com.tuinstituto.fitness/gps" // <--- Nuevo
+    
+    private val LOCATION_PERMISSION_REQUEST_CODE = 1001 // <--- Nuevo
+
+    // Variables globales
     private lateinit var executor: Executor
     private lateinit var biometricPrompt: BiometricPrompt
     private lateinit var promptInfo: BiometricPrompt.PromptInfo
@@ -30,16 +48,19 @@ class MainActivity: FlutterFragmentActivity() {
         super.configureFlutterEngine(flutterEngine)
         executor = ContextCompat.getMainExecutor(this)
 
-        // 1. Configurar Biometría (Ya lo tenías)
+        // 1. Configurar Biometría
         setupBiometricChannel(flutterEngine)
 
-        // 2. Configurar Acelerómetro (NUEVO)
+        // 2. Configurar Acelerómetro
         setupAccelerometerChannel(flutterEngine)
+        
+        // 3. Configurar GPS (NUEVO)
+        setupGpsChannel(flutterEngine)
     }
 
-    // =============================================================
-    // LÓGICA DE BIOMETRÍA (Refactorizada en una función para orden)
-    // =============================================================
+    // ═══════════════════════════════════════════════════════════
+    // 1. BIOMETRÍA
+    // ═══════════════════════════════════════════════════════════
     private fun setupBiometricChannel(flutterEngine: FlutterEngine) {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, BIOMETRIC_CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
@@ -88,116 +109,191 @@ class MainActivity: FlutterFragmentActivity() {
         biometricPrompt.authenticate(promptInfo)
     }
 
-    // =============================================================
-    // LÓGICA DEL ACELERÓMETRO (NUEVO)
-    // =============================================================
+    // ═══════════════════════════════════════════════════════════
+    // 2. ACELERÓMETRO
+    // ═══════════════════════════════════════════════════════════
     private fun setupAccelerometerChannel(flutterEngine: FlutterEngine) {
         val sensorManager = getSystemService(SENSOR_SERVICE) as SensorManager
         val accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
         
-        // Variables de estado del podómetro
         var stepCount = 0
         var lastMagnitude = 0.0
         var sensorEventListener: SensorEventListener? = null
-        
-        // Variables para suavizado y detección
         val magnitudeHistory = mutableListOf<Double>()
         var sampleCount = 0
         var lastActivityType = "stationary"
         var activityConfidence = 0
 
-        // EVENT CHANNEL: Stream de datos continuos
         EventChannel(flutterEngine.dartExecutor.binaryMessenger, ACCELEROMETER_CHANNEL).setStreamHandler(
             object : EventChannel.StreamHandler {
                 override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
-                    // Se ejecuta cuando Flutter empieza a escuchar (.listen)
                     sensorEventListener = object : SensorEventListener {
                         override fun onSensorChanged(event: SensorEvent?) {
                             event?.let {
-                                // 1. Calcular Magnitud (Pitágoras)
                                 val x = it.values[0]
                                 val y = it.values[1]
                                 val z = it.values[2]
                                 val magnitude = sqrt((x * x + y * y + z * z).toDouble())
 
-                                // 2. Suavizado (Promedio de últimas 10 muestras)
                                 magnitudeHistory.add(magnitude)
-                                if (magnitudeHistory.size > 10) {
-                                    magnitudeHistory.removeAt(0)
-                                }
+                                if (magnitudeHistory.size > 10) magnitudeHistory.removeAt(0)
                                 val avgMagnitude = magnitudeHistory.average()
 
-                                // 3. Detección de paso (Pico de magnitud)
-                                if (magnitude > 12 && lastMagnitude <= 12) {
-                                    stepCount++
-                                }
+                                if (magnitude > 12 && lastMagnitude <= 12) stepCount++
                                 lastMagnitude = magnitude
 
-                                // 4. Clasificar Actividad
                                 val newActivityType = when {
                                     avgMagnitude < 10.5 -> "stationary"
                                     avgMagnitude < 13.5 -> "walking"
                                     else -> "running"
                                 }
 
-                                // Filtro de confianza (evitar cambios bruscos)
-                                if (newActivityType == lastActivityType) {
-                                    activityConfidence++
-                                } else {
-                                    activityConfidence = 0
-                                }
-                                
+                                if (newActivityType == lastActivityType) activityConfidence++ else activityConfidence = 0
                                 val finalActivityType = if (activityConfidence >= 3) newActivityType else lastActivityType
                                 lastActivityType = finalActivityType
 
-                                // 5. Enviar a Flutter (Throttling: cada 3 muestras)
                                 sampleCount++
                                 if (sampleCount >= 3) {
                                     sampleCount = 0
-                                    val data = mapOf(
+                                    events?.success(mapOf(
                                         "stepCount" to stepCount,
                                         "activityType" to finalActivityType,
                                         "magnitude" to avgMagnitude
-                                    )
-                                    events?.success(data)
+                                    ))
                                 }
                             }
                         }
-
                         override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
                     }
-
-                    // Registrar el sensor
-                    sensorManager.registerListener(
-                        sensorEventListener,
-                        accelerometer,
-                        SensorManager.SENSOR_DELAY_GAME
-                    )
+                    sensorManager.registerListener(sensorEventListener, accelerometer, SensorManager.SENSOR_DELAY_GAME)
                 }
 
                 override fun onCancel(arguments: Any?) {
-                    // Se ejecuta cuando Flutter cancela la suscripción
-                    sensorEventListener?.let {
-                        sensorManager.unregisterListener(it)
-                    }
+                    sensorEventListener?.let { sensorManager.unregisterListener(it) }
                     sensorEventListener = null
                 }
             }
         )
 
-        // METHOD CHANNEL AUXILIAR: Para reiniciar o controlar
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "$ACCELEROMETER_CHANNEL/control").setMethodCallHandler { call, result ->
             when (call.method) {
-                "start" -> {
-                    stepCount = 0
-                    result.success(null)
+                "start" -> { stepCount = 0; result.success(null) }
+                "stop" -> result.success(null)
+                else -> result.notImplemented()
+            }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // 3. GPS (NUEVO CÓDIGO)
+    // ═══════════════════════════════════════════════════════════
+    private fun setupGpsChannel(flutterEngine: FlutterEngine) {
+        val locationManager = getSystemService(LOCATION_SERVICE) as LocationManager
+        var locationListener: LocationListener? = null
+
+        // A. MethodChannel: Operaciones puntuales (Permisos, Check GPS)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, GPS_CHANNEL).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "isGpsEnabled" -> {
+                    val isEnabled = locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)
+                    result.success(isEnabled)
                 }
-                "stop" -> {
-                    // Opcional: pausar lógica interna
-                    result.success(null)
+                "requestPermissions" -> {
+                    if (hasLocationPermission()) {
+                        result.success(true)
+                    } else {
+                        // Solicitar permiso nativo si no se tiene
+                        ActivityCompat.requestPermissions(
+                            this,
+                            arrayOf(
+                                Manifest.permission.ACCESS_FINE_LOCATION,
+                                Manifest.permission.ACCESS_COARSE_LOCATION
+                            ),
+                            LOCATION_PERMISSION_REQUEST_CODE
+                        )
+                        // Respondemos false por ahora, Flutter reintentará verificar luego
+                        result.success(false)
+                    }
+                }
+                "getCurrentLocation" -> {
+                    if (!hasLocationPermission()) {
+                        result.error("PERMISSION_DENIED", "Sin permisos de GPS", null)
+                    } else {
+                        try {
+                            val location = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+                                ?: locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+                            
+                            if (location != null) {
+                                result.success(locationToMap(location))
+                            } else {
+                                result.success(null) // Puede pasar si no hay última ubicación conocida
+                            }
+                        } catch (e: SecurityException) {
+                            result.error("SECURITY_ERROR", e.message, null)
+                        }
+                    }
                 }
                 else -> result.notImplemented()
             }
         }
+
+        // B. EventChannel: Stream de ubicación en tiempo real
+        EventChannel(flutterEngine.dartExecutor.binaryMessenger, "$GPS_CHANNEL/stream").setStreamHandler(
+            object : EventChannel.StreamHandler {
+                override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                    if (!hasLocationPermission()) {
+                        events?.error("PERMISSION_DENIED", "Se necesitan permisos", null)
+                        return
+                    }
+
+                    locationListener = object : LocationListener {
+                        override fun onLocationChanged(location: Location) {
+                            events?.success(locationToMap(location))
+                        }
+                        override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
+                        override fun onProviderEnabled(provider: String) {}
+                        override fun onProviderDisabled(provider: String) {}
+                    }
+
+                    try {
+                        // Solicitar actualizaciones: GPS_PROVIDER, minTime=1000ms (1s), minDistance=0m
+                        locationManager.requestLocationUpdates(
+                            LocationManager.GPS_PROVIDER,
+                            1000L,
+                            0f,
+                            locationListener!!
+                        )
+                    } catch (e: SecurityException) {
+                        events?.error("SECURITY_ERROR", e.message, null)
+                    }
+                }
+
+                override fun onCancel(arguments: Any?) {
+                    locationListener?.let {
+                        locationManager.removeUpdates(it)
+                    }
+                    locationListener = null
+                }
+            }
+        )
+    }
+
+    // Funciones auxiliares GPS
+    private fun hasLocationPermission(): Boolean {
+        return ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun locationToMap(location: Location): Map<String, Any> {
+        return mapOf(
+            "latitude" to location.latitude,
+            "longitude" to location.longitude,
+            "altitude" to location.altitude,
+            "speed" to location.speed.toDouble(),
+            "accuracy" to location.accuracy.toDouble(),
+            "timestamp" to location.time
+        )
     }
 }

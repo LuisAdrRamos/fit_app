@@ -10,6 +10,9 @@ import 'features/auth/presentation/pages/login_page.dart';
 // Importación del Contador de Pasos
 import 'features/steps/presentation/widgets/step_counter_widget.dart';
 
+// Importación del Widget del Mapa GPS
+import 'features/tracking/presentation/widgets/route_map_widget.dart';
+
 void main() {
   runApp(const FitnessApp());
 }
@@ -86,6 +89,8 @@ class HomePage extends StatelessWidget {
 
             SizedBox(height: 16),
 
+            RouteMapWidget(),
+            
             // Más tarde pondremos aquí el Mapa GPS...
             Card(
               child: Padding(
