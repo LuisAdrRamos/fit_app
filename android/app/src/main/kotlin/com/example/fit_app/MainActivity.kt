@@ -119,7 +119,10 @@ class MainActivity: FlutterFragmentActivity() {
         var stepCount = 0
         var lastMagnitude = 0.0
         var sensorEventListener: SensorEventListener? = null
+
+        // Parámetros para suavizado y clasificación
         val magnitudeHistory = mutableListOf<Double>()
+        val historySize = 1
         var sampleCount = 0
         var lastActivityType = "stationary"
         var activityConfidence = 0
@@ -128,41 +131,57 @@ class MainActivity: FlutterFragmentActivity() {
             object : EventChannel.StreamHandler {
                 override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
                     sensorEventListener = object : SensorEventListener {
-                        override fun onSensorChanged(event: SensorEvent?) {
-                            event?.let {
-                                val x = it.values[0]
-                                val y = it.values[1]
-                                val z = it.values[2]
-                                val magnitude = sqrt((x * x + y * y + z * z).toDouble())
+                    override fun onSensorChanged(event: SensorEvent?) {
+                        event?.let {
+                            // 1. Calcular Magnitud
+                            val x = it.values[0]
+                            val y = it.values[1]
+                            val z = it.values[2]
+                            val magnitude = sqrt((x * x + y * y + z * z).toDouble())
 
-                                magnitudeHistory.add(magnitude)
-                                if (magnitudeHistory.size > 10) magnitudeHistory.removeAt(0)
-                                val avgMagnitude = magnitudeHistory.average()
+                            // --- LÓGICA RETO 2: DETECCIÓN DE CAÍDA ---
+                            // Detectar pico > 25 m/s²
+                            val isFallDetected = magnitude > 25.0
+                            // -----------------------------------------
 
-                                if (magnitude > 12 && lastMagnitude <= 12) stepCount++
-                                lastMagnitude = magnitude
+                            // 2. Suavizado (Promedio)
+                            magnitudeHistory.add(magnitude)
+                            if (magnitudeHistory.size > historySize) {
+                                magnitudeHistory.removeAt(0)
+                            }
+                            val avgMagnitude = magnitudeHistory.average()
 
-                                val newActivityType = when {
-                                    avgMagnitude < 10.5 -> "stationary"
-                                    avgMagnitude < 13.5 -> "walking"
-                                    else -> "running"
-                                }
+                            // 3. Detección de paso
+                            if (magnitude > 12 && lastMagnitude <= 12) {
+                                stepCount++
+                            }
+                            lastMagnitude = magnitude
 
-                                if (newActivityType == lastActivityType) activityConfidence++ else activityConfidence = 0
-                                val finalActivityType = if (activityConfidence >= 3) newActivityType else lastActivityType
-                                lastActivityType = finalActivityType
+                            // 4. Clasificar Actividad
+                            val newActivityType = when {
+                                avgMagnitude < 10.5 -> "stationary"
+                                avgMagnitude < 13.5 -> "walking"
+                                else -> "running"
+                            }
 
-                                sampleCount++
-                                if (sampleCount >= 3) {
-                                    sampleCount = 0
-                                    events?.success(mapOf(
-                                        "stepCount" to stepCount,
-                                        "activityType" to finalActivityType,
-                                        "magnitude" to avgMagnitude
-                                    ))
-                                }
+                            if (newActivityType == lastActivityType) activityConfidence++ else activityConfidence = 0
+                            val finalActivityType = if (activityConfidence >= 3) newActivityType else lastActivityType
+                            lastActivityType = finalActivityType
+
+                            // 5. Enviar a Flutter
+                            // Si hay CAÍDA, enviamos INMEDIATAMENTE (ignoramos el conteo de muestras)
+                            sampleCount++
+                            if (sampleCount >= 3 || isFallDetected) {
+                                sampleCount = 0
+                                events?.success(mapOf(
+                                    "stepCount" to stepCount,
+                                    "activityType" to finalActivityType,
+                                    "magnitude" to avgMagnitude,
+                                    "isFall" to isFallDetected // <--- NUEVO CAMPO
+                                ))
                             }
                         }
+                    }
                         override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
                     }
                     sensorManager.registerListener(sensorEventListener, accelerometer, SensorManager.SENSOR_DELAY_GAME)

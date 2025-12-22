@@ -69,6 +69,11 @@ class _StepCounterWidgetState extends State<StepCounterWidget> {
         if (data.stepCount == 30) {
           NotificationService().showStepGoalNotification();
         }
+
+        // --- RETO 2: ALERTA DE CAÍDA ---
+        if (data.isFall) {
+          _showFallAlert();
+        }
       },
       onError: (error) {
         print('Error recibiendo pasos: $error');
@@ -88,6 +93,30 @@ class _StepCounterWidgetState extends State<StepCounterWidget> {
     });
   }
 
+  void _showFallAlert() {
+    // 1. Mostrar Notificación del Sistema
+    // (Podrías crear un método específico en NotificationService si quieres cambiar el texto)
+    NotificationService().showStepGoalNotification(); // Reusamos por simplicidad o crea uno nuevo
+
+    // 2. Mostrar Diálogo de Alerta en la App (SnackBar roja)
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: const [
+              Icon(Icons.warning_amber_rounded, color: Colors.white),
+              SizedBox(width: 10),
+              Text('¡CAÍDA DETECTADA! ¿Estás bien?'),
+            ],
+          ),
+          backgroundColor: Colors.redAccent,
+          duration: const Duration(seconds: 3),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+  
   @override
   Widget build(BuildContext context) {
     return Card(
