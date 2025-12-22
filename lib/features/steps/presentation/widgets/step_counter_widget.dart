@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'dart:async';
 import '../../data/datasources/accelerometer_datasource.dart';
 import '../../domain/entities/step_data.dart';
+import '../../../../core/platform/notification_service.dart';
 
 class StepCounterWidget extends StatefulWidget {
   const StepCounterWidget({super.key});
@@ -62,6 +63,12 @@ class _StepCounterWidgetState extends State<StepCounterWidget> {
         setState(() {
           _currentData = data;
         });
+
+        // --- LÓGICA DEL RETO 1 ---
+        // Si los pasos superan 30 (y para no spamear, hazlo solo una vez o cada X pasos)
+        if (data.stepCount == 30) {
+          NotificationService().showStepGoalNotification();
+        }
       },
       onError: (error) {
         print('Error recibiendo pasos: $error');

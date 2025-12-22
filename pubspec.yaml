@@ -43,6 +43,7 @@ dependencies:
   # Manejo de permisos
   permission_handler: ^11.0.1
   # Iconos (opcional pero recomendado por default)
+  flutter_local_notifications: ^17.1.0
 
 dev_dependencies:
   flutter_test:
