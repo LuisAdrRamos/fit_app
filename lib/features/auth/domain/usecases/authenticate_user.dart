@@ -1,24 +1,19 @@
+import '../auth_repository.dart';
 import '../entities/auth_result.dart';
-import '../../data/datasources/biometric_datasource.dart';
 
-/// Use Case: lógica de negocio de autenticación
 class AuthenticateUser {
-  final BiometricDataSource dataSource;
+  final AuthRepository _repo;
 
-  AuthenticateUser(this.dataSource);
+  AuthenticateUser(this._repo);
 
   Future<AuthResult> call() async {
-    // 1. Verificar si el dispositivo soporta biometría
-    final canAuth = await dataSource.canAuthenticate();
-
+    final canAuth = await _repo.canAuthenticate();
     if (!canAuth) {
       return const AuthResult(
         success: false,
         message: 'Biometría no disponible en este dispositivo',
       );
     }
-
-    // 2. Si soporta, proceder a autenticar
-    return await dataSource.authenticate();
+    return _repo.authenticate();
   }
 }

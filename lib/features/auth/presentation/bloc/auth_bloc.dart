@@ -1,63 +1,31 @@
-import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:bloc/bloc.dart';
 import 'package:equatable/equatable.dart';
-import '../../domain/usecases/authenticate_user.dart';
+
 import '../../domain/entities/auth_result.dart';
+import '../../domain/usecases/authenticate_user.dart';
 
-// EVENTS (Acciones)
-abstract class AuthEvent extends Equatable {
-  @override
-  List<Object> get props => [];
-}
+part 'auth_event.dart';
+part 'auth_state.dart';
 
-class AuthenticateRequested extends AuthEvent {}
-
-// STATES (Estados de la pantalla)
-abstract class AuthState extends Equatable {
-  @override
-  List<Object> get props => [];
-}
-
-class AuthInitial extends AuthState {}
-
-class AuthLoading extends AuthState {}
-
-class AuthSuccess extends AuthState {
-  final AuthResult result;
-  AuthSuccess(this.result);
-  @override
-  List<Object> get props => [result];
-}
-
-class AuthFailure extends AuthState {
-  final String message;
-  AuthFailure(this.message);
-  @override
-  List<Object> get props => [message];
-}
-
-// BLOC (Lógica)
 class AuthBloc extends Bloc<AuthEvent, AuthState> {
   final AuthenticateUser authenticateUser;
 
-  AuthBloc(this.authenticateUser) : super(AuthInitial()) {
-    on<AuthenticateRequested>(_onAuthenticateRequested);
+  AuthBloc(this.authenticateUser) : super(const AuthState.initial()) {
+    on<AuthRequested>(_onAuthRequested);
+    on<AuthReset>(_onAuthReset);
   }
 
-  Future<void> _onAuthenticateRequested(
-    AuthenticateRequested event,
-    Emitter<AuthState> emit,
-  ) async {
-    emit(AuthLoading());
-    try {
-      final result = await authenticateUser();
-
-      if (result.success) {
-        emit(AuthSuccess(result));
-      } else {
-        emit(AuthFailure(result.message ?? 'Error desconocido'));
-      }
-    } catch (e) {
-      emit(AuthFailure(e.toString()));
+  Future<void> _onAuthRequested(AuthRequested event, Emitter<AuthState> emit) async {
+    emit(state.copyWith(status: AuthStatus.loading, message: null));
+    final result = await authenticateUser();
+    if (result.success) {
+      emit(state.copyWith(status: AuthStatus.success, message: result.message));
+    } else {
+      emit(state.copyWith(status: AuthStatus.failure, message: result.message ?? 'Falló'));
     }
+  }
+
+  void _onAuthReset(AuthReset event, Emitter<AuthState> emit) {
+    emit(const AuthState.initial());
   }
 }
